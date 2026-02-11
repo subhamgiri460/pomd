@@ -1,0 +1,60 @@
+name: NSE Pre-Open Data Archiver
+
+on:
+  schedule:
+    # 09:08 IST = 03:38 UTC daily
+    - cron: '38 3 * * *'
+
+  # Allow manual trigger for debugging / re-runs
+  workflow_dispatch:
+    inputs:
+      debug:
+        description: 'Enable debug logging'
+        required: false
+        default: 'false'
+        type: choice
+        options:
+          - 'true'
+          - 'false'
+
+permissions:
+  contents: write    # Needed to push files via API
+
+jobs:
+  archive:
+    name: Fetch & Archive NSE Pre-Open Data
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    env:
+      GITHUB_TOKEN: ${{ secrets.NSE_ARCHIVER_TOKEN }}
+      GITHUB_REPO: ${{ github.repository }}
+      GITHUB_BRANCH: main
+      PYTHONUNBUFFERED: '1'    # Ensure logs stream in real-time
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run archiver pipeline
+        run: python -m src.main
+        env:
+          # Override for debug mode if requested
+          LOG_LEVEL: ${{ github.event.inputs.debug == 'true' && 'DEBUG' || 'INFO' }}
+
+      - name: Upload logs as artifact (on failure)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pipeline-logs
+          path: '*.log'
+          retention-days: 7
