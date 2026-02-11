@@ -136,8 +136,12 @@ class AppConfig:
             MAX_RETRIES, RETRY_BACKOFF, DATA_DIR, INDEX_FILE, LOG_FILE,
             COMMIT_AUTHOR_NAME, COMMIT_AUTHOR_EMAIL
         """
-        token = os.environ.get("TARGET_GITHUB_TOKEN") or os.environ.get("GITHUB_TOKEN", "")
-        repo = os.environ.get("TARGET_GITHUB_REPO") or os.environ.get("GITHUB_REPO", "")
+        token = (
+            os.environ.get("TARGET_GITHUB_TOKEN") or os.environ.get("GITHUB_TOKEN", "")
+        ).strip()
+        repo = (
+            os.environ.get("TARGET_GITHUB_REPO") or os.environ.get("GITHUB_REPO", "")
+        ).strip()
 
         if not token:
             raise ConfigError(
