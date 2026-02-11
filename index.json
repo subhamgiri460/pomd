@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "files": [
+    {
+      "filename": "preopen_20260211T122158Z_7987f630a933.json.gz",
+      "hash": "7987f630a933df3b8f90ea83e0b56b1a1f70c6af45dfe23392a0d98ab0e822a3",
+      "timestamp": "2026-02-11T12:21:58.314479+00:00",
+      "size_bytes": 278372,
+      "raw_size_bytes": 2058409,
+      "records_count": 2057
+    }
+  ],
+  "total_count": 1,
+  "last_updated": "2026-02-11T12:22:01.137899+00:00"
+}
