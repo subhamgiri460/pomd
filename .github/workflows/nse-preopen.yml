@@ -1,6 +1,9 @@
 name: NSE Pre-Open Data Archiver
 
 on:
+  schedule:
+    - cron: "38 3 * * *"  
+
   # Manual trigger only
   workflow_dispatch:
     inputs:
