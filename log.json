@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "runs": [
+    {
+      "timestamp": "2026-02-11T12:22:02.009615+00:00",
+      "status": "success",
+      "message": "Archived preopen_20260211T122158Z_7987f630a933.json.gz (278372 bytes, 2057 records)",
+      "duration_ms": 3368,
+      "filename": "preopen_20260211T122158Z_7987f630a933.json.gz"
+    }
+  ],
+  "total_runs": 1
+}
