@@ -94,7 +94,7 @@ class TestAppendRun:
         assert "filename" not in log["runs"][0]
 
     def test_append_error_run(self) -> None:
-        """Should add an error entry with detail."""
+        """Should add an error entry with detail and failed_step."""
         log = load_log(None)
 
         append_run(
@@ -103,11 +103,13 @@ class TestAppendRun:
             message="Failed to fetch NSE data",
             duration_ms=10000,
             error_detail="NSEFetchError: Connection timeout",
+            failed_step="fetching_data",
         )
 
         entry = log["runs"][0]
         assert entry["status"] == "error"
         assert entry["error_detail"] == "NSEFetchError: Connection timeout"
+        assert entry["failed_step"] == "fetching_data"
 
     def test_total_runs_increments(self) -> None:
         """total_runs should increment with each append."""

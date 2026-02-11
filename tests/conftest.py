@@ -82,6 +82,7 @@ SAMPLE_INDEX = {
             "timestamp": "2026-02-10T03:38:00+00:00",
             "size_bytes": 1234,
             "raw_size_bytes": 5678,
+            "url": "https://raw.githubusercontent.com/testowner/testrepo/main/data/preopen_20260210T033800Z_aabbccddee11.json.gz",
             "records_count": 50,
         }
     ],

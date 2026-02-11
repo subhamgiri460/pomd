@@ -1,11 +1,7 @@
 name: NSE Pre-Open Data Archiver
 
 on:
-  schedule:
-    # 09:08 IST = 03:38 UTC daily
-    - cron: '38 3 * * *'
-
-  # Allow manual trigger for debugging / re-runs
+  # Manual trigger only
   workflow_dispatch:
     inputs:
       debug:
@@ -57,6 +53,8 @@ jobs:
     env:
       GITHUB_TOKEN: ${{ github.token }}
       GITHUB_REPO: ${{ github.repository }}
+      TARGET_GITHUB_TOKEN: ${{ secrets.TARGET_GITHUB_TOKEN }}
+      TARGET_GITHUB_REPO: ${{ secrets.TARGET_GITHUB_REPO }}
       GITHUB_BRANCH: main
       PYTHONUNBUFFERED: '1'    # Ensure logs stream in real-time
 

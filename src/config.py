@@ -124,27 +124,28 @@ class AppConfig:
         """
         Load configuration from environment variables.
 
-        Required env vars:
-            GITHUB_TOKEN  — Personal access token with repo scope
-            GITHUB_REPO   — Target repository as "owner/repo"
+        Prioritizes TARGET_GITHUB_TOKEN and TARGET_GITHUB_REPO if set.
+        Otherwise falls back to GITHUB_TOKEN and GITHUB_REPO.
+
+        Required env vars (one of):
+            TARGET_GITHUB_TOKEN (or GITHUB_TOKEN)
+            TARGET_GITHUB_REPO  (or GITHUB_REPO)
 
         Optional env vars (with defaults):
             GITHUB_BRANCH, NSE_URL, USER_AGENT, REQUEST_TIMEOUT,
             MAX_RETRIES, RETRY_BACKOFF, DATA_DIR, INDEX_FILE, LOG_FILE,
             COMMIT_AUTHOR_NAME, COMMIT_AUTHOR_EMAIL
         """
-        token = os.environ.get("GITHUB_TOKEN", "")
-        repo = os.environ.get("GITHUB_REPO", "")
+        token = os.environ.get("TARGET_GITHUB_TOKEN") or os.environ.get("GITHUB_TOKEN", "")
+        repo = os.environ.get("TARGET_GITHUB_REPO") or os.environ.get("GITHUB_REPO", "")
 
         if not token:
             raise ConfigError(
-                "Environment variable GITHUB_TOKEN is not set. "
-                "Set it to a GitHub PAT with 'repo' scope."
+                "Environment variable TARGET_GITHUB_TOKEN (or GITHUB_TOKEN) is not set."
             )
         if not repo:
             raise ConfigError(
-                "Environment variable GITHUB_REPO is not set. "
-                "Set it to 'owner/repo' format."
+                "Environment variable TARGET_GITHUB_REPO (or GITHUB_REPO) is not set."
             )
 
         return cls(

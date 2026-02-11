@@ -261,6 +261,7 @@ class TestRunPipelineErrors:
         result = run_pipeline(app_config)
         assert result.status == RunStatus.ERROR
         assert "curl failed" in result.message
+        assert result.failed_step == "fetching_data"
 
     @responses.activate
     @patch("src.main.get_utc_now", return_value=FIXED_TIMESTAMP)
@@ -311,6 +312,7 @@ class TestRunPipelineErrors:
         result = run_pipeline(app_config)
         assert result.status == RunStatus.ERROR
         assert "GitHub API error" in result.message
+        assert result.failed_step == "github_operations"
 
 
 # ── Test PipelineResult ──────────────────────────────────────────────────────

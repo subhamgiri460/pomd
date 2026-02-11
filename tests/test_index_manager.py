@@ -100,6 +100,7 @@ class TestAppendEntry:
             timestamp=ts,
             size_bytes=1000,
             raw_size_bytes=5000,
+            url="https://example.com/file.gz",
             records_count=200,
         )
 
@@ -109,6 +110,7 @@ class TestAppendEntry:
         entry = result["files"][0]
         assert entry["filename"] == "preopen_20260211T033800Z_abc123def456.json.gz"
         assert entry["records_count"] == 200
+        assert entry["url"] == "https://example.com/file.gz"
 
     def test_append_to_existing_index(self) -> None:
         """Should add to existing files without removing old entries."""
@@ -122,6 +124,7 @@ class TestAppendEntry:
             timestamp=ts,
             size_bytes=2000,
             raw_size_bytes=8000,
+            url="https://example.com/new_file.gz",
         )
 
         assert len(result["files"]) == 2  # 1 existing + 1 new
@@ -139,6 +142,7 @@ class TestAppendEntry:
             timestamp=ts,
             size_bytes=500,
             raw_size_bytes=2000,
+            url="https://example.com/test.gz",
             records_count=50,
         )
 
@@ -148,6 +152,7 @@ class TestAppendEntry:
         assert "timestamp" in entry
         assert "size_bytes" in entry
         assert "raw_size_bytes" in entry
+        assert "url" in entry
         assert "records_count" in entry
 
 
