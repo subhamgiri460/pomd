@@ -53,6 +53,18 @@ class TestAppConfigFromEnv:
         assert config.github_token == "ghp_primary"
         assert config.github_repo == "primary/repo"
 
+    def test_from_env_strips_whitespace(self) -> None:
+        """Should strip whitespace from token and repo."""
+        env = {
+            "GITHUB_TOKEN": " ghp_abc123 \n",
+            "GITHUB_REPO": " owner/repo \n",
+        }
+        with patch.dict(os.environ, env, clear=False):
+            config = AppConfig.from_env()
+
+        assert config.github_token == "ghp_abc123"
+        assert config.github_repo == "owner/repo"
+
     def test_from_env_all_optional_vars(self) -> None:
         """Should pick up all optional env vars."""
         env = {
