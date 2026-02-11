@@ -13,6 +13,8 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
 if TYPE_CHECKING:
     from src.config import AppConfig
@@ -60,6 +62,18 @@ class GitHubRepoClient:
 
     def _build_session(self) -> requests.Session:
         session = requests.Session()
+
+        # Configure retries for resilience
+        retry_strategy = Retry(
+            total=3,
+            backoff_factor=1,
+            status_forcelist=[429, 500, 502, 503, 504],
+            allowed_methods=["GET", "PUT", "POST"],
+        )
+        adapter = HTTPAdapter(max_retries=retry_strategy)
+        session.mount("https://", adapter)
+        session.mount("http://", adapter)
+
         session.headers.update({
             "Accept": "application/vnd.github.v3+json",
             "Authorization": f"Bearer {self._config.github_token}",

@@ -59,15 +59,20 @@ class TestNSEClientFetch:
 
         client = NSEClient(app_config)
 
-        # We need to intercept the temp file write
-        # Since curl writes to a file, we patch the temp file read
-        with patch("tempfile.NamedTemporaryFile") as mock_tmp:
+        # We need to intercept the temp directory and file reading
+        # Since curl writes to a file, we patch open() to return our sample data
+        with patch("tempfile.TemporaryDirectory") as mock_tmp_dir, \
+             patch("builtins.open", new_callable=MagicMock) as mock_open:
+
+            mock_dir = MagicMock()
+            mock_dir.__enter__.return_value = "/tmp/mock_dir"
+            mock_dir.__exit__.return_value = None
+            mock_tmp_dir.return_value = mock_dir
+
+            # Setup mock file handle
             mock_file = MagicMock()
-            mock_file.name = "/tmp/test.json"
             mock_file.read.return_value = SAMPLE_NSE_DATA
-            mock_file.__enter__ = lambda s: s
-            mock_file.__exit__ = MagicMock(return_value=False)
-            mock_tmp.return_value = mock_file
+            mock_open.return_value.__enter__.return_value = mock_file
 
             result = client.fetch()
 
@@ -95,12 +100,13 @@ class TestNSEClientFetch:
 
         client = NSEClient(app_config)
 
-        with patch("tempfile.NamedTemporaryFile") as mock_tmp:
-            mock_file = MagicMock()
-            mock_file.name = "/tmp/test.json"
-            mock_file.__enter__ = lambda s: s
-            mock_file.__exit__ = MagicMock(return_value=False)
-            mock_tmp.return_value = mock_file
+        with patch("tempfile.TemporaryDirectory") as mock_tmp_dir, \
+             patch("builtins.open") as mock_open:  # Not used due to exception
+
+            mock_dir = MagicMock()
+            mock_dir.__enter__.return_value = "/tmp/mock_dir"
+            mock_dir.__exit__.return_value = None
+            mock_tmp_dir.return_value = mock_dir
 
             with pytest.raises(NSEFetchError, match="curl failed"):
                 client.fetch()
@@ -116,13 +122,13 @@ class TestNSEClientFetch:
 
         client = NSEClient(app_config)
 
-        with patch("tempfile.NamedTemporaryFile") as mock_tmp:
-            mock_file = MagicMock()
-            mock_file.name = "/tmp/test.json"
-            mock_file.read.return_value = b"<html>Forbidden</html>"
-            mock_file.__enter__ = lambda s: s
-            mock_file.__exit__ = MagicMock(return_value=False)
-            mock_tmp.return_value = mock_file
+        with patch("tempfile.TemporaryDirectory") as mock_tmp_dir, \
+             patch("builtins.open") as mock_open:  # Not used due to exception
+
+            mock_dir = MagicMock()
+            mock_dir.__enter__.return_value = "/tmp/mock_dir"
+            mock_dir.__exit__.return_value = None
+            mock_tmp_dir.return_value = mock_dir
 
             with pytest.raises(NSEFetchError, match="HTTP 403"):
                 client.fetch()
@@ -138,13 +144,17 @@ class TestNSEClientFetch:
 
         client = NSEClient(app_config)
 
-        with patch("tempfile.NamedTemporaryFile") as mock_tmp:
+        with patch("tempfile.TemporaryDirectory") as mock_tmp_dir, \
+             patch("builtins.open") as mock_open:
+
+            mock_dir = MagicMock()
+            mock_dir.__enter__.return_value = "/tmp/mock_dir"
+            mock_dir.__exit__.return_value = None
+            mock_tmp_dir.return_value = mock_dir
+
             mock_file = MagicMock()
-            mock_file.name = "/tmp/test.json"
             mock_file.read.return_value = b'{"error": true}'  # Too small
-            mock_file.__enter__ = lambda s: s
-            mock_file.__exit__ = MagicMock(return_value=False)
-            mock_tmp.return_value = mock_file
+            mock_open.return_value.__enter__.return_value = mock_file
 
             with pytest.raises(NSEValidationError, match="too small"):
                 client.fetch()
@@ -160,13 +170,17 @@ class TestNSEClientFetch:
 
         client = NSEClient(app_config)
 
-        with patch("tempfile.NamedTemporaryFile") as mock_tmp:
+        with patch("tempfile.TemporaryDirectory") as mock_tmp_dir, \
+             patch("builtins.open") as mock_open:
+
+            mock_dir = MagicMock()
+            mock_dir.__enter__.return_value = "/tmp/mock_dir"
+            mock_dir.__exit__.return_value = None
+            mock_tmp_dir.return_value = mock_dir
+
             mock_file = MagicMock()
-            mock_file.name = "/tmp/test.json"
             mock_file.read.return_value = b"<html>Not JSON</html>" + b"x" * 200
-            mock_file.__enter__ = lambda s: s
-            mock_file.__exit__ = MagicMock(return_value=False)
-            mock_tmp.return_value = mock_file
+            mock_open.return_value.__enter__.return_value = mock_file
 
             with pytest.raises(NSEValidationError, match="not valid JSON"):
                 client.fetch()
@@ -184,13 +198,17 @@ class TestNSEClientFetch:
 
         client = NSEClient(app_config)
 
-        with patch("tempfile.NamedTemporaryFile") as mock_tmp:
+        with patch("tempfile.TemporaryDirectory") as mock_tmp_dir, \
+             patch("builtins.open") as mock_open:
+
+            mock_dir = MagicMock()
+            mock_dir.__enter__.return_value = "/tmp/mock_dir"
+            mock_dir.__exit__.return_value = None
+            mock_tmp_dir.return_value = mock_dir
+
             mock_file = MagicMock()
-            mock_file.name = "/tmp/test.json"
             mock_file.read.return_value = body
-            mock_file.__enter__ = lambda s: s
-            mock_file.__exit__ = MagicMock(return_value=False)
-            mock_tmp.return_value = mock_file
+            mock_open.return_value.__enter__.return_value = mock_file
 
             with pytest.raises(NSEValidationError, match="Expected JSON object"):
                 client.fetch()
@@ -204,12 +222,13 @@ class TestNSEClientFetch:
         """Should raise NSEFetchError when curl times out."""
         client = NSEClient(app_config)
 
-        with patch("tempfile.NamedTemporaryFile") as mock_tmp:
-            mock_file = MagicMock()
-            mock_file.name = "/tmp/test.json"
-            mock_file.__enter__ = lambda s: s
-            mock_file.__exit__ = MagicMock(return_value=False)
-            mock_tmp.return_value = mock_file
+        with patch("tempfile.TemporaryDirectory") as mock_tmp_dir, \
+             patch("builtins.open"):  # Not used
+
+            mock_dir = MagicMock()
+            mock_dir.__enter__.return_value = "/tmp/mock_dir"
+            mock_dir.__exit__.return_value = None
+            mock_tmp_dir.return_value = mock_dir
 
             with pytest.raises(NSEFetchError, match="timed out"):
                 client.fetch()
@@ -225,13 +244,17 @@ class TestNSEClientFetch:
 
         client = NSEClient(app_config)
 
-        with patch("tempfile.NamedTemporaryFile") as mock_tmp:
+        with patch("tempfile.TemporaryDirectory") as mock_tmp_dir, \
+             patch("builtins.open") as mock_open:
+
+            mock_dir = MagicMock()
+            mock_dir.__enter__.return_value = "/tmp/mock_dir"
+            mock_dir.__exit__.return_value = None
+            mock_tmp_dir.return_value = mock_dir
+
             mock_file = MagicMock()
-            mock_file.name = "/tmp/test.json"
             mock_file.read.return_value = b""
-            mock_file.__enter__ = lambda s: s
-            mock_file.__exit__ = MagicMock(return_value=False)
-            mock_tmp.return_value = mock_file
+            mock_open.return_value.__enter__.return_value = mock_file
 
             with pytest.raises(NSEFetchError, match="Empty response"):
                 client.fetch()

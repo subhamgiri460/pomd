@@ -10,10 +10,11 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import shutil
 import subprocess
 import tempfile
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from src.config import MIN_RESPONSE_BYTES
 
@@ -74,7 +75,7 @@ class NSEClient:
             )
         return curl
 
-    def _build_curl_command(self, output_file: str) -> list[str]:
+    def _get_curl_command(self, output_file: str) -> list[str]:
         """
         Build the curl command line.
 
@@ -105,6 +106,60 @@ class NSEClient:
 
         return cmd
 
+    def _execute_curl(self, cmd: list[str]) -> int:
+        """
+        Execute the curl command and return the HTTP status code.
+
+        Raises:
+            NSEFetchError: On execution failure, timeout, or non-integer status output.
+        """
+        logger.info("Fetching NSE data via curl: %s", self._config.nse_url)
+        logger.debug("curl command: %s", " ".join(cmd))
+
+        try:
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=self._config.request_timeout + 10,  # extra buffer
+            )
+        except subprocess.TimeoutExpired as exc:
+            raise NSEFetchError(
+                f"curl timed out after {self._config.request_timeout + 10}s"
+            ) from exc
+        except FileNotFoundError as exc:
+            raise NSEFetchError(
+                "curl binary not found. Is curl installed?"
+            ) from exc
+
+        # Parse HTTP status code from stdout
+        status_str = result.stdout.strip()
+        stderr_output = result.stderr.strip()
+
+        if result.returncode != 0:
+            raise NSEFetchError(
+                f"curl failed (exit code {result.returncode}): "
+                f"{stderr_output or 'no error output'}",
+                status_code=int(status_str) if status_str.isdigit() else None,
+            )
+
+        if not status_str.isdigit():
+            raise NSEFetchError(
+                f"Could not parse HTTP status from curl output: "
+                f"{status_str!r}. Stderr: {stderr_output}"
+            )
+
+        return int(status_str)
+
+    def _read_file(self, filepath: str) -> bytes:
+        """Read the content of the temporary output file."""
+        try:
+            with open(filepath, "rb") as f:
+                return f.read()
+        except FileNotFoundError:
+            # Caller handles context
+            raise
+
     def _validate_response(self, body: bytes) -> None:
         """
         Validate the response body from NSE.
@@ -113,6 +168,7 @@ class NSEClient:
         1. Response body is non-empty and above minimum size
         2. Body parses as valid JSON
         3. JSON is a dict (expected NSE structure)
+        4. JSON contains 'data' key (core payload)
         """
         # Check body size
         if len(body) < MIN_RESPONSE_BYTES:
@@ -138,6 +194,17 @@ class NSEClient:
                 "NSE may have changed the API response format."
             )
 
+        if not parsed:
+            raise NSEValidationError(
+                "Response JSON object is empty. NSE returned {}."
+            )
+
+        # Specific check for 'data' key based on API analysis
+        if "data" not in parsed:
+             raise NSEValidationError(
+                "Response JSON missing 'data' key. NSE may have changed API format."
+            )
+
         logger.info(
             "Response validated: %d bytes, %d top-level keys",
             len(body),
@@ -155,50 +222,12 @@ class NSEClient:
             NSEFetchError: If curl fails or returns non-2xx status.
             NSEValidationError: If the response fails validation.
         """
-        with tempfile.NamedTemporaryFile(
-            suffix=".json", delete=True
-        ) as tmp:
-            cmd = self._build_curl_command(tmp.name)
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            output_file = os.path.join(tmp_dir, "response.json")
+            cmd = self._get_curl_command(output_file)
 
-            logger.info(
-                "Fetching NSE data via curl: %s", self._config.nse_url
-            )
-            logger.debug("curl command: %s", " ".join(cmd))
+            status_code = self._execute_curl(cmd)
 
-            try:
-                result = subprocess.run(
-                    cmd,
-                    capture_output=True,
-                    text=True,
-                    timeout=self._config.request_timeout + 10,  # extra buffer
-                )
-            except subprocess.TimeoutExpired as exc:
-                raise NSEFetchError(
-                    f"curl timed out after {self._config.request_timeout + 10}s"
-                ) from exc
-            except FileNotFoundError as exc:
-                raise NSEFetchError(
-                    "curl binary not found. Is curl installed?"
-                ) from exc
-
-            # Parse HTTP status code from stdout
-            status_str = result.stdout.strip()
-            stderr_output = result.stderr.strip()
-
-            if result.returncode != 0:
-                raise NSEFetchError(
-                    f"curl failed (exit code {result.returncode}): "
-                    f"{stderr_output or 'no error output'}",
-                    status_code=int(status_str) if status_str.isdigit() else None,
-                )
-
-            if not status_str.isdigit():
-                raise NSEFetchError(
-                    f"Could not parse HTTP status from curl output: "
-                    f"{status_str!r}"
-                )
-
-            status_code = int(status_str)
             if status_code < 200 or status_code >= 300:
                 raise NSEFetchError(
                     f"NSE returned HTTP {status_code}",
@@ -206,7 +235,18 @@ class NSEClient:
                 )
 
             # Read response body from temp file
-            body = tmp.read()
+            try:
+                body = self._read_file(output_file)
+            except FileNotFoundError:
+                 # Re-raising with context if needed, but here simple catch is enough
+                 # as we don't have stderr easily available in this scope without
+                 # redesigning _execute_curl to return it.
+                 # However, _execute_curl raises if returncode != 0, so this usually
+                 # implies curl claimed success but didn't write file.
+                 raise NSEFetchError(
+                    f"Output file not found after curl run (HTTP {status_code}). "
+                    "curl may have failed silently."
+                )
 
             if not body:
                 raise NSEFetchError(
