@@ -19,7 +19,13 @@
       "status": "duplicate",
       "message": "Duplicate data (hash=7987f630a933…). Skipped upload.",
       "duration_ms": 1127
+    },
+    {
+      "timestamp": "2026-02-11T18:50:25.227151+00:00",
+      "status": "duplicate",
+      "message": "Duplicate data (hash=7987f630a933…). Skipped upload.",
+      "duration_ms": 1773
     }
   ],
-  "total_runs": 3
+  "total_runs": 4
 }
