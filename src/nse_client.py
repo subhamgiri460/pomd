@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import shutil
 import subprocess
 import tempfile
@@ -138,6 +139,11 @@ class NSEClient:
                 "NSE may have changed the API response format."
             )
 
+        if not parsed:
+            raise NSEValidationError(
+                "Response JSON object is empty. NSE returned {}."
+            )
+
         logger.info(
             "Response validated: %d bytes, %d top-level keys",
             len(body),
@@ -155,10 +161,9 @@ class NSEClient:
             NSEFetchError: If curl fails or returns non-2xx status.
             NSEValidationError: If the response fails validation.
         """
-        with tempfile.NamedTemporaryFile(
-            suffix=".json", delete=True
-        ) as tmp:
-            cmd = self._build_curl_command(tmp.name)
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            output_file = os.path.join(tmp_dir, "response.json")
+            cmd = self._build_curl_command(output_file)
 
             logger.info(
                 "Fetching NSE data via curl: %s", self._config.nse_url
@@ -195,7 +200,7 @@ class NSEClient:
             if not status_str.isdigit():
                 raise NSEFetchError(
                     f"Could not parse HTTP status from curl output: "
-                    f"{status_str!r}"
+                    f"{status_str!r}. Stderr: {stderr_output}"
                 )
 
             status_code = int(status_str)
@@ -206,7 +211,14 @@ class NSEClient:
                 )
 
             # Read response body from temp file
-            body = tmp.read()
+            try:
+                with open(output_file, "rb") as f:
+                    body = f.read()
+            except FileNotFoundError:
+                raise NSEFetchError(
+                    f"Output file not found after curl run (HTTP {status_code}). "
+                    f"curl may have failed silently. Stderr: {stderr_output}"
+                )
 
             if not body:
                 raise NSEFetchError(

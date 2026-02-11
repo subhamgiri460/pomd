@@ -77,7 +77,7 @@ class TestGetFile:
             status=500,
         )
 
-        with pytest.raises(GitHubAPIError, match="HTTP 500"):
+        with pytest.raises(GitHubAPIError, match="Max retries exceeded"):
             github_client.get_file("index.json")
 
     @responses.activate

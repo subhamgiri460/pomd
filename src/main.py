@@ -129,6 +129,7 @@ def run_pipeline(config: AppConfig) -> PipelineResult:
     logger.info("STEP 3: Checking for duplicates")
     logger.info("=" * 60)
 
+    records: int | None = None
     with GitHubRepoClient(config) as github:
         index_file = github.get_file(config.index_file)
         index_raw = index_file.content if index_file else None

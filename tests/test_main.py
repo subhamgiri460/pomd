@@ -30,16 +30,6 @@ from tests.conftest import (
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
-def _mock_curl_success(body: bytes) -> MagicMock:
-    """Create mocks for a successful curl fetch that writes body to temp file."""
-    mock_tmp_file = MagicMock()
-    mock_tmp_file.name = "/tmp/mock_nse.json"
-    mock_tmp_file.read.return_value = body
-    mock_tmp_file.__enter__ = lambda s: s
-    mock_tmp_file.__exit__ = MagicMock(return_value=False)
-    return mock_tmp_file
-
-
 def _setup_github_get(
     config: AppConfig,
     path: str,
@@ -82,10 +72,12 @@ class TestRunPipelineSuccess:
     @patch("src.main.get_utc_now", return_value=FIXED_TIMESTAMP)
     @patch("shutil.which", return_value="/usr/bin/curl")
     @patch("subprocess.run")
-    @patch("tempfile.NamedTemporaryFile")
+    @patch("tempfile.TemporaryDirectory")
+    @patch("builtins.open")
     def test_new_data_archived(
         self,
-        mock_tmp: MagicMock,
+        mock_open: MagicMock,
+        mock_tmp_dir: MagicMock,
         mock_run: MagicMock,
         mock_which: MagicMock,
         mock_time: MagicMock,
@@ -93,7 +85,18 @@ class TestRunPipelineSuccess:
     ) -> None:
         """Should upload .gz and update index when data is new."""
         body = sample_nse_bytes()
-        mock_tmp.return_value = _mock_curl_success(body)
+
+        # Mock directory
+        mock_dir = MagicMock()
+        mock_dir.__enter__.return_value = "/tmp/mock_dir"
+        mock_dir.__exit__.return_value = None
+        mock_tmp_dir.return_value = mock_dir
+
+        # Mock open to return body
+        mock_file = MagicMock()
+        mock_file.read.return_value = body
+        mock_open.return_value.__enter__.return_value = mock_file
+
         mock_run.return_value = subprocess.CompletedProcess(
             args=["curl"], returncode=0, stdout="200", stderr=""
         )
@@ -113,10 +116,12 @@ class TestRunPipelineSuccess:
     @patch("src.main.get_utc_now", return_value=FIXED_TIMESTAMP)
     @patch("shutil.which", return_value="/usr/bin/curl")
     @patch("subprocess.run")
-    @patch("tempfile.NamedTemporaryFile")
+    @patch("tempfile.TemporaryDirectory")
+    @patch("builtins.open")
     def test_creates_index_when_missing(
         self,
-        mock_tmp: MagicMock,
+        mock_open: MagicMock,
+        mock_tmp_dir: MagicMock,
         mock_run: MagicMock,
         mock_which: MagicMock,
         mock_time: MagicMock,
@@ -124,7 +129,18 @@ class TestRunPipelineSuccess:
     ) -> None:
         """Should create index.json when it doesn't exist yet."""
         body = sample_nse_bytes()
-        mock_tmp.return_value = _mock_curl_success(body)
+
+        # Mock directory
+        mock_dir = MagicMock()
+        mock_dir.__enter__.return_value = "/tmp/mock_dir"
+        mock_dir.__exit__.return_value = None
+        mock_tmp_dir.return_value = mock_dir
+
+        # Mock open to return body
+        mock_file = MagicMock()
+        mock_file.read.return_value = body
+        mock_open.return_value.__enter__.return_value = mock_file
+
         mock_run.return_value = subprocess.CompletedProcess(
             args=["curl"], returncode=0, stdout="200", stderr=""
         )
@@ -146,10 +162,12 @@ class TestRunPipelineDuplicate:
     @patch("src.main.get_utc_now", return_value=FIXED_TIMESTAMP)
     @patch("shutil.which", return_value="/usr/bin/curl")
     @patch("subprocess.run")
-    @patch("tempfile.NamedTemporaryFile")
+    @patch("tempfile.TemporaryDirectory")
+    @patch("builtins.open")
     def test_duplicate_data_skipped(
         self,
-        mock_tmp: MagicMock,
+        mock_open: MagicMock,
+        mock_tmp_dir: MagicMock,
         mock_run: MagicMock,
         mock_which: MagicMock,
         mock_time: MagicMock,
@@ -157,7 +175,16 @@ class TestRunPipelineDuplicate:
     ) -> None:
         """Should skip upload when hash already exists in index."""
         nse_data = sample_nse_bytes()
-        mock_tmp.return_value = _mock_curl_success(nse_data)
+
+        mock_dir = MagicMock()
+        mock_dir.__enter__.return_value = "/tmp/mock_dir"
+        mock_dir.__exit__.return_value = None
+        mock_tmp_dir.return_value = mock_dir
+
+        mock_file = MagicMock()
+        mock_file.read.return_value = nse_data
+        mock_open.return_value.__enter__.return_value = mock_file
+
         mock_run.return_value = subprocess.CompletedProcess(
             args=["curl"], returncode=0, stdout="200", stderr=""
         )
@@ -204,20 +231,23 @@ class TestRunPipelineErrors:
 
     @patch("shutil.which", return_value="/usr/bin/curl")
     @patch("subprocess.run")
-    @patch("tempfile.NamedTemporaryFile")
+    @patch("tempfile.TemporaryDirectory")
+    @patch("builtins.open")
     def test_nse_fetch_failure(
         self,
-        mock_tmp: MagicMock,
+        mock_open: MagicMock,
+        mock_tmp_dir: MagicMock,
         mock_run: MagicMock,
         mock_which: MagicMock,
         app_config: AppConfig,
     ) -> None:
         """Should raise NSEFetchError when curl returns non-zero."""
-        mock_file = MagicMock()
-        mock_file.name = "/tmp/test.json"
-        mock_file.__enter__ = lambda s: s
-        mock_file.__exit__ = MagicMock(return_value=False)
-        mock_tmp.return_value = mock_file
+        mock_dir = MagicMock()
+        mock_dir.__enter__.return_value = "/tmp/mock_dir"
+        mock_dir.__exit__.return_value = None
+        mock_tmp_dir.return_value = mock_dir
+
+        # open() won't be called because subprocess returns non-zero
 
         mock_run.return_value = subprocess.CompletedProcess(
             args=["curl"], returncode=7, stdout="000",
@@ -233,10 +263,12 @@ class TestRunPipelineErrors:
     @patch("src.main.get_utc_now", return_value=FIXED_TIMESTAMP)
     @patch("shutil.which", return_value="/usr/bin/curl")
     @patch("subprocess.run")
-    @patch("tempfile.NamedTemporaryFile")
+    @patch("tempfile.TemporaryDirectory")
+    @patch("builtins.open")
     def test_github_upload_failure(
         self,
-        mock_tmp: MagicMock,
+        mock_open: MagicMock,
+        mock_tmp_dir: MagicMock,
         mock_run: MagicMock,
         mock_which: MagicMock,
         mock_time: MagicMock,
@@ -244,7 +276,16 @@ class TestRunPipelineErrors:
     ) -> None:
         """Should raise GitHubAPIError when upload fails."""
         body = sample_nse_bytes()
-        mock_tmp.return_value = _mock_curl_success(body)
+
+        mock_dir = MagicMock()
+        mock_dir.__enter__.return_value = "/tmp/mock_dir"
+        mock_dir.__exit__.return_value = None
+        mock_tmp_dir.return_value = mock_dir
+
+        mock_file = MagicMock()
+        mock_file.read.return_value = body
+        mock_open.return_value.__enter__.return_value = mock_file
+
         mock_run.return_value = subprocess.CompletedProcess(
             args=["curl"], returncode=0, stdout="200", stderr=""
         )
