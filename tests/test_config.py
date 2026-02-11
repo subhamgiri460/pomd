@@ -39,6 +39,20 @@ class TestAppConfigFromEnv:
         assert config.max_retries == DEFAULT_MAX_RETRIES
         assert config.request_timeout == DEFAULT_REQUEST_TIMEOUT
 
+    def test_from_env_with_target_vars(self) -> None:
+        """Should prioritize TARGET_* env vars."""
+        env = {
+            "GITHUB_TOKEN": "ghp_backup",
+            "GITHUB_REPO": "backup/repo",
+            "TARGET_GITHUB_TOKEN": "ghp_primary",
+            "TARGET_GITHUB_REPO": "primary/repo",
+        }
+        with patch.dict(os.environ, env, clear=False):
+            config = AppConfig.from_env()
+
+        assert config.github_token == "ghp_primary"
+        assert config.github_repo == "primary/repo"
+
     def test_from_env_all_optional_vars(self) -> None:
         """Should pick up all optional env vars."""
         env = {

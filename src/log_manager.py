@@ -32,6 +32,7 @@ def _make_run_entry(
     duration_ms: int,
     filename: str | None = None,
     error_detail: str | None = None,
+    failed_step: str | None = None,
 ) -> dict[str, Any]:
     """Build a single run log entry."""
     entry: dict[str, Any] = {
@@ -44,6 +45,8 @@ def _make_run_entry(
         entry["filename"] = filename
     if error_detail:
         entry["error_detail"] = error_detail
+    if failed_step:
+        entry["failed_step"] = failed_step
     return entry
 
 
@@ -82,6 +85,7 @@ def append_run(
     duration_ms: int,
     filename: str | None = None,
     error_detail: str | None = None,
+    failed_step: str | None = None,
 ) -> dict[str, Any]:
     """
     Append a run entry to the log and enforce the cap.
@@ -93,6 +97,7 @@ def append_run(
         duration_ms: Total run duration in milliseconds.
         filename: Uploaded filename (for success runs).
         error_detail: Error details (for error runs).
+        failed_step: The pipeline step where the failure occurred.
 
     Returns:
         Updated log dict.
@@ -103,6 +108,7 @@ def append_run(
         duration_ms=duration_ms,
         filename=filename,
         error_detail=error_detail,
+        failed_step=failed_step,
     )
     log["runs"].append(entry)
 

@@ -4,14 +4,14 @@ Automated daily archival of NSE (National Stock Exchange of India) pre-open mark
 
 ## What It Does
 
-Every day at **09:08 IST (03:38 UTC)**, this pipeline:
+This pipeline:
 
 1. 🌐 **Fetches** pre-open market data from NSE's API
 2. 📦 **Compresses** the response with gzip (deterministic, for reliable dedup)
 3. 🔐 **Hashes** the compressed data (SHA-256)
 4. 🔍 **Checks** if this exact data was already archived (deduplication)
 5. ⬆️ **Uploads** the `.gz` file to the `data/` directory
-6. 📋 **Updates** `index.json` with metadata
+6. 📋 **Updates** `index.json` with metadata (including raw content URL)
 7. 📊 **Logs** the run outcome to `log.json`
 
 ## Project Structure
@@ -43,19 +43,21 @@ Create a new repository (or use an existing one) where the data will be archived
 
 1. Go to [GitHub Settings → Developer settings → Personal access tokens → Fine-grained tokens](https://github.com/settings/tokens?type=beta)
 2. Create a token with:
-   - **Repository access**: Only select your archive repository
+   - **Repository access**: Only select your archive repository (if different from the workflow repo)
    - **Permissions**: Contents → Read and write
 
-### 3. Add Repository Secret
+### 3. Add Repository Secrets
 
 1. Go to your repository → Settings → Secrets and variables → Actions
-2. Add a new secret:
-   - **Name**: `NSE_ARCHIVER_TOKEN`
+2. Add new secrets:
+   - **Name**: `TARGET_GITHUB_TOKEN`
    - **Value**: Your PAT from step 2
+   - **Name**: `TARGET_GITHUB_REPO`
+   - **Value**: The target repository in `owner/repo` format (e.g., `my-user/nse-data-archive`)
 
 ### 4. Enable GitHub Actions
 
-The workflow will automatically run on the configured schedule. You can also trigger it manually from the Actions tab.
+The workflow is triggered manually from the Actions tab ("Run workflow").
 
 ## Configuration
 
@@ -116,6 +118,7 @@ python -m src.main
       "timestamp": "2026-02-11T03:38:00+00:00",
       "size_bytes": 45678,
       "raw_size_bytes": 123456,
+      "url": "https://raw.githubusercontent.com/owner/repo/main/data/preopen_20260211T033800Z_abc123def456.json.gz",
       "records_count": 200
     }
   ],

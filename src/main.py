@@ -70,11 +70,13 @@ class PipelineResult:
         message: str,
         filename: str | None = None,
         error_detail: str | None = None,
+        failed_step: str | None = None,
     ) -> None:
         self.status = status
         self.message = message
         self.filename = filename
         self.error_detail = error_detail
+        self.failed_step = failed_step
 
     @property
     def is_error(self) -> bool:
@@ -124,34 +126,42 @@ class NSEArchiverPipeline:
     def run(self) -> PipelineResult:
         """Execute the full pipeline."""
         now = get_utc_now()
+        current_step = "initializing"
 
         try:
+            current_step = "fetching_data"
             raw_data = self.fetch_data()
+
+            current_step = "processing_data"
             compressed, data_hash = self.process_data(raw_data)
 
             # Step 3: Build filename
+            current_step = "building_filename"
             filename = build_filename(now, data_hash)
             filepath = f"{self.config.data_dir}/{filename}"
             logger.info("Target file: %s", filepath)
 
             # Step 4: Interact with GitHub (Check duplicate -> Upload -> Update Index)
+            current_step = "github_operations"
             return self._handle_github_operations(
                 now, raw_data, compressed, data_hash, filename, filepath
             )
 
         except (NSEFetchError, GitHubAPIError) as exc:
-            logger.error("Pipeline failed: %s", exc)
+            logger.error("Pipeline failed at step '%s': %s", current_step, exc)
             return PipelineResult(
                 status=RunStatus.ERROR,
                 message=str(exc),
                 error_detail=f"{type(exc).__name__}: {exc}",
+                failed_step=current_step,
             )
         except Exception as exc:
-            logger.exception("Unexpected error in pipeline")
+            logger.exception("Unexpected error in pipeline at step '%s'", current_step)
             return PipelineResult(
                 status=RunStatus.ERROR,
                 message=f"Unexpected error: {exc}",
                 error_detail=f"{type(exc).__name__}: {exc}",
+                failed_step=current_step,
             )
 
     def _handle_github_operations(
@@ -204,6 +214,11 @@ class NSEArchiverPipeline:
             logger.info("=" * 60)
 
             records = count_records(raw_data)
+
+            # Construct raw content URL
+            # Format: https://raw.githubusercontent.com/{owner}/{repo}/{branch}/{path}
+            raw_url = f"https://raw.githubusercontent.com/{self.config.github_repo}/{self.config.github_branch}/{filepath}"
+
             append_entry(
                 index=index,
                 filename=filename,
@@ -211,6 +226,7 @@ class NSEArchiverPipeline:
                 timestamp=now,
                 size_bytes=len(compressed),
                 raw_size_bytes=len(raw_data),
+                url=raw_url,
                 records_count=records,
             )
             index_bytes = serialize_index(index)
@@ -254,6 +270,7 @@ def update_log(
                 duration_ms=duration_ms,
                 filename=result.filename,
                 error_detail=result.error_detail,
+                failed_step=result.failed_step,
             )
             log_bytes = serialize_log(log)
 
