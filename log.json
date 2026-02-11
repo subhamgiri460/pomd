@@ -7,7 +7,13 @@
       "message": "Archived preopen_20260211T122158Z_7987f630a933.json.gz (278372 bytes, 2057 records)",
       "duration_ms": 3368,
       "filename": "preopen_20260211T122158Z_7987f630a933.json.gz"
+    },
+    {
+      "timestamp": "2026-02-11T12:24:12.413922+00:00",
+      "status": "duplicate",
+      "message": "Duplicate data (hash=7987f630a933…). Skipped upload.",
+      "duration_ms": 1919
     }
   ],
-  "total_runs": 1
+  "total_runs": 2
 }
