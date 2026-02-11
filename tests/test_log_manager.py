@@ -103,11 +103,13 @@ class TestAppendRun:
             message="Failed to fetch NSE data",
             duration_ms=10000,
             error_detail="NSEFetchError: Connection timeout",
+            failed_step="fetch_data",
         )
 
         entry = log["runs"][0]
         assert entry["status"] == "error"
         assert entry["error_detail"] == "NSEFetchError: Connection timeout"
+        assert entry["failed_step"] == "fetch_data"
 
     def test_total_runs_increments(self) -> None:
         """total_runs should increment with each append."""
