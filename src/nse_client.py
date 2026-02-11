@@ -1,26 +1,21 @@
 """
-NSE HTTP client with session management, cookie handling, and retries.
+NSE HTTP client using curl subprocess.
 
-NSE blocks direct API calls — you must first visit the homepage to get
-session cookies, then hit the API endpoint. This module handles that
-transparently.
+Uses the exact curl approach that is proven to work against NSE's WAF.
+No cookie initialization needed — curl with the right headers and HTTP/1.1
+bypasses NSE's bot detection that blocks Python requests.
 """
 
 from __future__ import annotations
 
 import json
 import logging
+import shutil
+import subprocess
+import tempfile
 from typing import TYPE_CHECKING
 
-import requests
-from requests.adapters import HTTPAdapter
-from urllib3.util.retry import Retry
-
-from src.config import (
-    NSE_BASE_URL,
-    MIN_RESPONSE_BYTES,
-    EXPECTED_CONTENT_TYPE,
-)
+from src.config import MIN_RESPONSE_BYTES
 
 if TYPE_CHECKING:
     from src.config import AppConfig
@@ -46,7 +41,18 @@ class NSEValidationError(NSEFetchError):
 
 class NSEClient:
     """
-    HTTP client for fetching NSE pre-open market data.
+    HTTP client for fetching NSE pre-open market data via curl.
+
+    Uses subprocess to invoke curl with the exact flags that bypass
+    NSE's bot detection. This matches the proven working curl command:
+
+        curl --http1.1 -L \\
+          -H "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64)" \\
+          -H "Accept: application/json" \\
+          -H "Referer: https://www.nseindia.com/" \\
+          -H "Connection: keep-alive" \\
+          --compressed \\
+          "https://www.nseindia.com/api/market-data-pre-open?key=ALL&selectValFormat=crores"
 
     Usage:
         client = NSEClient(config)
@@ -55,73 +61,60 @@ class NSEClient:
 
     def __init__(self, config: AppConfig) -> None:
         self._config = config
-        self._session = self._build_session()
+        self._curl_path = self._find_curl()
 
-    def _build_session(self) -> requests.Session:
-        """Create a requests.Session with retry logic and proper headers."""
-        session = requests.Session()
-
-        # Configure retry strategy
-        retry_strategy = Retry(
-            total=self._config.max_retries,
-            backoff_factor=self._config.retry_backoff,
-            status_forcelist=list(self._config.RETRY_STATUS_CODES),
-            allowed_methods=["GET"],
-            raise_on_status=False,      # We handle status ourselves
-        )
-        adapter = HTTPAdapter(max_retries=retry_strategy)
-        session.mount("https://", adapter)
-        session.mount("http://", adapter)
-
-        # Set default headers
-        session.headers.update(self._config.nse_headers)
-
-        return session
-
-    def _establish_session_cookies(self) -> None:
-        """
-        Hit the NSE homepage to get session cookies.
-
-        NSE requires valid cookies (like nseappid, nsit, etc.) before
-        allowing API access. Without this step, API calls return 401/403.
-        """
-        logger.info("Establishing NSE session cookies via homepage...")
-        try:
-            resp = self._session.get(
-                NSE_BASE_URL,
-                timeout=self._config.request_timeout,
-            )
-            resp.raise_for_status()
-            cookie_names = list(self._session.cookies.keys())
-            logger.info(
-                "Session established. Cookies: %s",
-                cookie_names or "(none — may still work)",
-            )
-        except requests.RequestException as exc:
+    @staticmethod
+    def _find_curl() -> str:
+        """Locate the curl binary or raise an error."""
+        curl = shutil.which("curl")
+        if not curl:
             raise NSEFetchError(
-                f"Failed to establish NSE session: {exc}"
-            ) from exc
+                "curl is not installed or not found in PATH. "
+                "Install curl (apt-get install curl) and retry."
+            )
+        return curl
 
-    def _validate_response(self, response: requests.Response) -> None:
+    def _build_curl_command(self, output_file: str) -> list[str]:
         """
-        Validate the HTTP response from NSE.
+        Build the curl command line.
+
+        Writes the response body to `output_file` and prints the
+        HTTP status code to stdout.
+        """
+        headers = self._config.nse_headers
+        cmd = [
+            self._curl_path,
+            "--http1.1",           # Force HTTP/1.1 (critical for NSE)
+            "-L",                  # Follow redirects
+            "--compressed",        # Accept-Encoding: gzip,deflate + auto-decompress
+            "-s", "-S",            # Silent but show errors
+            "-o", output_file,     # Write body to temp file
+            "-w", "%{http_code}",  # Print HTTP status code to stdout
+            "--max-time", str(self._config.request_timeout),
+            "--retry", str(self._config.max_retries),
+            "--retry-delay", str(self._config.retry_delay),
+            "--retry-all-errors",  # Retry on all errors, not just transient
+        ]
+
+        # Add headers from config
+        for name, value in headers.items():
+            cmd.extend(["-H", f"{name}: {value}"])
+
+        # URL must be last
+        cmd.append(self._config.nse_url)
+
+        return cmd
+
+    def _validate_response(self, body: bytes) -> None:
+        """
+        Validate the response body from NSE.
 
         Checks:
-        1. HTTP status is 2xx
-        2. Response body is non-empty and above minimum size
-        3. Content-type looks like JSON
-        4. Body parses as valid JSON
+        1. Response body is non-empty and above minimum size
+        2. Body parses as valid JSON
+        3. JSON is a dict (expected NSE structure)
         """
-        # Check HTTP status
-        if not response.ok:
-            raise NSEFetchError(
-                f"NSE returned HTTP {response.status_code}: "
-                f"{response.text[:200]}",
-                status_code=response.status_code,
-            )
-
         # Check body size
-        body = response.content
         if len(body) < MIN_RESPONSE_BYTES:
             raise NSEValidationError(
                 f"Response too small ({len(body)} bytes, "
@@ -129,19 +122,7 @@ class NSEClient:
                 "NSE may have changed the API or returned an error page."
             )
 
-        # Check content type (NSE sometimes returns text/html on errors)
-        content_type = response.headers.get("Content-Type", "")
-        if EXPECTED_CONTENT_TYPE not in content_type:
-            # Log warning but don't fail — sometimes content-type is wrong
-            # but the body is still valid JSON
-            logger.warning(
-                "Unexpected Content-Type: %s (expected %s). "
-                "Proceeding with JSON parse check.",
-                content_type,
-                EXPECTED_CONTENT_TYPE,
-            )
-
-        # Try to parse as JSON to ensure the response is valid
+        # Try to parse as JSON
         try:
             parsed = json.loads(body)
         except (json.JSONDecodeError, UnicodeDecodeError) as exc:
@@ -150,7 +131,7 @@ class NSEClient:
                 f"First 200 chars: {body[:200]!r}"
             ) from exc
 
-        # Validate expected structure — NSE returns a dict with a "data" key
+        # Validate expected structure — NSE returns a dict
         if not isinstance(parsed, dict):
             raise NSEValidationError(
                 f"Expected JSON object, got {type(parsed).__name__}. "
@@ -165,42 +146,86 @@ class NSEClient:
 
     def fetch(self) -> bytes:
         """
-        Fetch pre-open market data from NSE.
+        Fetch pre-open market data from NSE using curl.
 
         Returns:
             Raw response body as bytes (JSON).
 
         Raises:
-            NSEFetchError: If the request fails after all retries.
+            NSEFetchError: If curl fails or returns non-2xx status.
             NSEValidationError: If the response fails validation.
         """
-        # Step 1: Get session cookies
-        self._establish_session_cookies()
+        with tempfile.NamedTemporaryFile(
+            suffix=".json", delete=True
+        ) as tmp:
+            cmd = self._build_curl_command(tmp.name)
 
-        # Step 2: Fetch the actual data
-        logger.info("Fetching NSE pre-open data from %s", self._config.nse_url)
-        try:
-            response = self._session.get(
-                self._config.nse_url,
-                timeout=self._config.request_timeout,
+            logger.info(
+                "Fetching NSE data via curl: %s", self._config.nse_url
             )
-        except requests.RequestException as exc:
-            raise NSEFetchError(
-                f"HTTP request failed after retries: {exc}"
-            ) from exc
+            logger.debug("curl command: %s", " ".join(cmd))
 
-        # Step 3: Validate the response
-        self._validate_response(response)
+            try:
+                result = subprocess.run(
+                    cmd,
+                    capture_output=True,
+                    text=True,
+                    timeout=self._config.request_timeout + 10,  # extra buffer
+                )
+            except subprocess.TimeoutExpired as exc:
+                raise NSEFetchError(
+                    f"curl timed out after {self._config.request_timeout + 10}s"
+                ) from exc
+            except FileNotFoundError as exc:
+                raise NSEFetchError(
+                    "curl binary not found. Is curl installed?"
+                ) from exc
 
-        logger.info(
-            "Successfully fetched %d bytes from NSE",
-            len(response.content),
-        )
-        return response.content
+            # Parse HTTP status code from stdout
+            status_str = result.stdout.strip()
+            stderr_output = result.stderr.strip()
+
+            if result.returncode != 0:
+                raise NSEFetchError(
+                    f"curl failed (exit code {result.returncode}): "
+                    f"{stderr_output or 'no error output'}",
+                    status_code=int(status_str) if status_str.isdigit() else None,
+                )
+
+            if not status_str.isdigit():
+                raise NSEFetchError(
+                    f"Could not parse HTTP status from curl output: "
+                    f"{status_str!r}"
+                )
+
+            status_code = int(status_str)
+            if status_code < 200 or status_code >= 300:
+                raise NSEFetchError(
+                    f"NSE returned HTTP {status_code}",
+                    status_code=status_code,
+                )
+
+            # Read response body from temp file
+            body = tmp.read()
+
+            if not body:
+                raise NSEFetchError(
+                    f"Empty response body (HTTP {status_code}). "
+                    "curl may have failed silently."
+                )
+
+            logger.info(
+                "curl returned HTTP %d, %d bytes", status_code, len(body)
+            )
+
+        # Validate the response
+        self._validate_response(body)
+
+        logger.info("Successfully fetched %d bytes from NSE", len(body))
+        return body
 
     def close(self) -> None:
-        """Close the underlying HTTP session."""
-        self._session.close()
+        """No-op — curl subprocess is stateless."""
 
     def __enter__(self) -> NSEClient:
         return self

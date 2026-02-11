@@ -2,7 +2,7 @@
 Integration tests for src.main — full pipeline orchestration.
 
 Tests the run_pipeline function with mocked external dependencies
-(NSE API and GitHub API) to verify the complete flow.
+(NSE via subprocess mock, GitHub via HTTP mock) to verify the complete flow.
 """
 
 from __future__ import annotations
@@ -10,13 +10,14 @@ from __future__ import annotations
 import base64
 import json
 import re
+import subprocess
 from datetime import datetime, timezone
-from unittest.mock import patch
+from unittest.mock import patch, MagicMock
 
 import pytest
 import responses
 
-from src.config import AppConfig, NSE_BASE_URL
+from src.config import AppConfig
 from src.main import run_pipeline, PipelineResult, update_log
 from src.log_manager import RunStatus
 from tests.conftest import (
@@ -27,16 +28,16 @@ from tests.conftest import (
 )
 
 
-def _setup_nse_mocks(config: AppConfig, body: bytes | None = None) -> None:
-    """Register NSE homepage and API mocks."""
-    responses.add(responses.GET, NSE_BASE_URL, status=200)
-    responses.add(
-        responses.GET,
-        config.nse_url,
-        body=body or sample_nse_bytes(),
-        status=200,
-        content_type="application/json",
-    )
+# ── Helpers ──────────────────────────────────────────────────────────────────
+
+def _mock_curl_success(body: bytes) -> MagicMock:
+    """Create mocks for a successful curl fetch that writes body to temp file."""
+    mock_tmp_file = MagicMock()
+    mock_tmp_file.name = "/tmp/mock_nse.json"
+    mock_tmp_file.read.return_value = body
+    mock_tmp_file.__enter__ = lambda s: s
+    mock_tmp_file.__exit__ = MagicMock(return_value=False)
+    return mock_tmp_file
 
 
 def _setup_github_get(
@@ -61,38 +62,45 @@ def _setup_github_get(
         )
 
 
-def _setup_github_put(config: AppConfig, path: str) -> None:
-    """Register a GitHub PUT mock."""
-    url = f"{config.github_api_url}/{path}"
+def _setup_github_put(config: AppConfig) -> None:
+    """Register a GitHub PUT mock matching any path under the API URL."""
+    api_pattern = re.compile(re.escape(config.github_api_url) + r"/.*")
     responses.add(
         responses.PUT,
-        url,
-        json={"commit": {"sha": "new_commit_sha"}},
+        api_pattern,
+        json={"commit": {"sha": "commit1"}},
         status=201,
     )
 
+
+# ── Test Pipeline Success ────────────────────────────────────────────────────
 
 class TestRunPipelineSuccess:
     """Test the happy path — new data gets archived."""
 
     @responses.activate
     @patch("src.main.get_utc_now", return_value=FIXED_TIMESTAMP)
+    @patch("shutil.which", return_value="/usr/bin/curl")
+    @patch("subprocess.run")
+    @patch("tempfile.NamedTemporaryFile")
     def test_new_data_archived(
-        self, mock_time: object, app_config: AppConfig
+        self,
+        mock_tmp: MagicMock,
+        mock_run: MagicMock,
+        mock_which: MagicMock,
+        mock_time: MagicMock,
+        app_config: AppConfig,
     ) -> None:
         """Should upload .gz and update index when data is new."""
-        # Setup mocks
-        _setup_nse_mocks(app_config)
-        _setup_github_get(app_config, "index.json", sample_index_bytes())
-        # We need to allow two PUT calls — data file and index update
-        # Use a regex to match any PUT to the GitHub Contents API
-        api_pattern = re.compile(re.escape(app_config.github_api_url) + r"/.*")
-        responses.add(
-            responses.PUT,
-            api_pattern,
-            json={"commit": {"sha": "commit1"}},
-            status=201,
+        body = sample_nse_bytes()
+        mock_tmp.return_value = _mock_curl_success(body)
+        mock_run.return_value = subprocess.CompletedProcess(
+            args=["curl"], returncode=0, stdout="200", stderr=""
         )
+
+        # GitHub mocks
+        _setup_github_get(app_config, "index.json", sample_index_bytes())
+        _setup_github_put(app_config)
 
         result = run_pipeline(app_config)
 
@@ -103,44 +111,63 @@ class TestRunPipelineSuccess:
 
     @responses.activate
     @patch("src.main.get_utc_now", return_value=FIXED_TIMESTAMP)
+    @patch("shutil.which", return_value="/usr/bin/curl")
+    @patch("subprocess.run")
+    @patch("tempfile.NamedTemporaryFile")
     def test_creates_index_when_missing(
-        self, mock_time: object, app_config: AppConfig
+        self,
+        mock_tmp: MagicMock,
+        mock_run: MagicMock,
+        mock_which: MagicMock,
+        mock_time: MagicMock,
+        app_config: AppConfig,
     ) -> None:
         """Should create index.json when it doesn't exist yet."""
-        _setup_nse_mocks(app_config)
-        _setup_github_get(app_config, "index.json", None)  # 404
-        api_pattern = re.compile(re.escape(app_config.github_api_url) + r"/.*")
-        responses.add(
-            responses.PUT,
-            api_pattern,
-            json={"commit": {"sha": "commit1"}},
-            status=201,
+        body = sample_nse_bytes()
+        mock_tmp.return_value = _mock_curl_success(body)
+        mock_run.return_value = subprocess.CompletedProcess(
+            args=["curl"], returncode=0, stdout="200", stderr=""
         )
+
+        _setup_github_get(app_config, "index.json", None)  # 404
+        _setup_github_put(app_config)
 
         result = run_pipeline(app_config)
 
         assert result.status == RunStatus.SUCCESS
 
 
+# ── Test Duplicate Detection ─────────────────────────────────────────────────
+
 class TestRunPipelineDuplicate:
     """Test the duplicate detection path."""
 
     @responses.activate
     @patch("src.main.get_utc_now", return_value=FIXED_TIMESTAMP)
+    @patch("shutil.which", return_value="/usr/bin/curl")
+    @patch("subprocess.run")
+    @patch("tempfile.NamedTemporaryFile")
     def test_duplicate_data_skipped(
-        self, mock_time: object, app_config: AppConfig
+        self,
+        mock_tmp: MagicMock,
+        mock_run: MagicMock,
+        mock_which: MagicMock,
+        mock_time: MagicMock,
+        app_config: AppConfig,
     ) -> None:
         """Should skip upload when hash already exists in index."""
         nse_data = sample_nse_bytes()
+        mock_tmp.return_value = _mock_curl_success(nse_data)
+        mock_run.return_value = subprocess.CompletedProcess(
+            args=["curl"], returncode=0, stdout="200", stderr=""
+        )
 
-        # We need to construct an index that contains the hash of the
-        # gzipped version of this exact data
+        # Build index with the exact hash of this data
         from src.compression import gzip_compress, sha256_hex
 
         compressed = gzip_compress(nse_data)
         data_hash = sha256_hex(compressed)
 
-        # Build index with this hash already present
         index_with_hash = {
             "version": 1,
             "files": [
@@ -158,7 +185,6 @@ class TestRunPipelineDuplicate:
         }
         index_bytes = json.dumps(index_with_hash).encode()
 
-        _setup_nse_mocks(app_config, body=nse_data)
         _setup_github_get(app_config, "index.json", index_bytes)
 
         result = run_pipeline(app_config)
@@ -171,13 +197,32 @@ class TestRunPipelineDuplicate:
         assert len(put_calls) == 0
 
 
+# ── Test Error Handling ──────────────────────────────────────────────────────
+
 class TestRunPipelineErrors:
     """Test error handling paths."""
 
-    @responses.activate
-    def test_nse_fetch_failure(self, app_config: AppConfig) -> None:
-        """Should raise NSEFetchError when NSE is down."""
-        responses.add(responses.GET, NSE_BASE_URL, status=503)
+    @patch("shutil.which", return_value="/usr/bin/curl")
+    @patch("subprocess.run")
+    @patch("tempfile.NamedTemporaryFile")
+    def test_nse_fetch_failure(
+        self,
+        mock_tmp: MagicMock,
+        mock_run: MagicMock,
+        mock_which: MagicMock,
+        app_config: AppConfig,
+    ) -> None:
+        """Should raise NSEFetchError when curl returns non-zero."""
+        mock_file = MagicMock()
+        mock_file.name = "/tmp/test.json"
+        mock_file.__enter__ = lambda s: s
+        mock_file.__exit__ = MagicMock(return_value=False)
+        mock_tmp.return_value = mock_file
+
+        mock_run.return_value = subprocess.CompletedProcess(
+            args=["curl"], returncode=7, stdout="000",
+            stderr="Failed to connect"
+        )
 
         from src.nse_client import NSEFetchError
 
@@ -186,11 +231,24 @@ class TestRunPipelineErrors:
 
     @responses.activate
     @patch("src.main.get_utc_now", return_value=FIXED_TIMESTAMP)
+    @patch("shutil.which", return_value="/usr/bin/curl")
+    @patch("subprocess.run")
+    @patch("tempfile.NamedTemporaryFile")
     def test_github_upload_failure(
-        self, mock_time: object, app_config: AppConfig
+        self,
+        mock_tmp: MagicMock,
+        mock_run: MagicMock,
+        mock_which: MagicMock,
+        mock_time: MagicMock,
+        app_config: AppConfig,
     ) -> None:
         """Should raise GitHubAPIError when upload fails."""
-        _setup_nse_mocks(app_config)
+        body = sample_nse_bytes()
+        mock_tmp.return_value = _mock_curl_success(body)
+        mock_run.return_value = subprocess.CompletedProcess(
+            args=["curl"], returncode=0, stdout="200", stderr=""
+        )
+
         _setup_github_get(app_config, "index.json", None)  # New index
 
         # Data upload fails
@@ -208,6 +266,8 @@ class TestRunPipelineErrors:
             run_pipeline(app_config)
 
 
+# ── Test PipelineResult ──────────────────────────────────────────────────────
+
 class TestPipelineResult:
     """Test PipelineResult helper methods."""
 
@@ -224,6 +284,8 @@ class TestPipelineResult:
         assert result.is_error is True
 
 
+# ── Test Log Update ──────────────────────────────────────────────────────────
+
 class TestUpdateLog:
     """Test the log update step."""
 
@@ -231,7 +293,13 @@ class TestUpdateLog:
     def test_update_log_success(self, app_config: AppConfig) -> None:
         """Should fetch, update, and push log.json."""
         _setup_github_get(app_config, "log.json", None)  # New log
-        _setup_github_put(app_config, "log.json")
+        api_pattern = re.compile(re.escape(app_config.github_api_url) + r"/.*")
+        responses.add(
+            responses.PUT,
+            api_pattern,
+            json={"commit": {"sha": "commit1"}},
+            status=201,
+        )
 
         result = PipelineResult(
             RunStatus.SUCCESS, "test run", filename="test.gz"
@@ -244,7 +312,6 @@ class TestUpdateLog:
         self, app_config: AppConfig
     ) -> None:
         """Log update failure should be swallowed (best-effort)."""
-        # Simulate a connection error by not adding any mocks
         responses.add(
             responses.GET,
             f"{app_config.github_api_url}/log.json",

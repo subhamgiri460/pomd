@@ -14,7 +14,7 @@ from src.config import (
     DEFAULT_BRANCH,
     DEFAULT_MAX_RETRIES,
     DEFAULT_REQUEST_TIMEOUT,
-    DEFAULT_RETRY_BACKOFF,
+    DEFAULT_RETRY_DELAY,
     DEFAULT_USER_AGENT,
     GITHUB_API_BASE,
 )
@@ -49,7 +49,7 @@ class TestAppConfigFromEnv:
             "USER_AGENT": "CustomBot/2.0",
             "REQUEST_TIMEOUT": "60",
             "MAX_RETRIES": "5",
-            "RETRY_BACKOFF": "3.5",
+            "RETRY_DELAY": "5",
             "DATA_DIR": "archive",
             "INDEX_FILE": "manifest.json",
             "LOG_FILE": "runs.json",
@@ -64,7 +64,7 @@ class TestAppConfigFromEnv:
         assert config.user_agent == "CustomBot/2.0"
         assert config.request_timeout == 60
         assert config.max_retries == 5
-        assert config.retry_backoff == 3.5
+        assert config.retry_delay == 5
         assert config.data_dir == "archive"
         assert config.index_file == "manifest.json"
         assert config.log_file == "runs.json"
@@ -110,7 +110,7 @@ class TestAppConfigValidation:
         assert "User-Agent" in headers
         assert "Accept" in headers
         assert "Referer" in headers
-        assert "Accept-Language" in headers
+        assert "Connection" in headers
 
     def test_config_is_immutable(self, app_config: AppConfig) -> None:
         """Frozen dataclass should reject attribute assignment."""

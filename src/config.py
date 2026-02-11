@@ -10,7 +10,6 @@ from __future__ import annotations
 import os
 import logging
 from dataclasses import dataclass, field
-from typing import ClassVar
 
 logger = logging.getLogger(__name__)
 
@@ -26,30 +25,22 @@ class ConfigError(Exception):
 # NSE endpoint — update here if NSE changes the URL
 NSE_BASE_URL = "https://www.nseindia.com"
 NSE_API_PATH = "/api/market-data-pre-open"
-NSE_API_URL = f"{NSE_BASE_URL}{NSE_API_PATH}"
+NSE_API_QUERY = "key=ALL&selectValFormat=crores"
+NSE_API_URL = f"{NSE_BASE_URL}{NSE_API_PATH}?{NSE_API_QUERY}"
 
-# Referer must match a real NSE page that uses this API
-NSE_REFERER = (
-    "https://www.nseindia.com/market-data/pre-open-market-cm-and-emerge-market"
-)
+# Referer — simple base domain works with curl
+NSE_REFERER = "https://www.nseindia.com/"
 
-# User-Agent — must look like a real browser; update when NSE blocks it
-DEFAULT_USER_AGENT = (
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-    "AppleWebKit/537.36 (KHTML, like Gecko) "
-    "Chrome/131.0.0.0 Safari/537.36"
-)
+# User-Agent — matches the curl command that works against NSE
+DEFAULT_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
 
-# Accept headers NSE expects
-DEFAULT_ACCEPT = "application/json, text/plain, */*"
-DEFAULT_ACCEPT_LANGUAGE = "en-US,en;q=0.9"
-DEFAULT_ACCEPT_ENCODING = "gzip, deflate, br"
+# Accept header
+DEFAULT_ACCEPT = "application/json"
 
-# HTTP tuning
-DEFAULT_REQUEST_TIMEOUT: int = 30        # seconds per request
-DEFAULT_MAX_RETRIES: int = 3             # total retry attempts
-DEFAULT_RETRY_BACKOFF: float = 2.0       # exponential backoff multiplier
-DEFAULT_RETRY_STATUS_CODES: tuple[int, ...] = (429, 500, 502, 503, 504)
+# HTTP tuning (used by curl subprocess)
+DEFAULT_REQUEST_TIMEOUT: int = 30        # seconds per request (--max-time)
+DEFAULT_MAX_RETRIES: int = 3             # curl --retry count
+DEFAULT_RETRY_DELAY: int = 2             # curl --retry-delay seconds
 
 # File naming
 FILENAME_PREFIX = "preopen"
@@ -96,7 +87,7 @@ class AppConfig:
     user_agent: str = DEFAULT_USER_AGENT
     request_timeout: int = DEFAULT_REQUEST_TIMEOUT
     max_retries: int = DEFAULT_MAX_RETRIES
-    retry_backoff: float = DEFAULT_RETRY_BACKOFF
+    retry_delay: int = DEFAULT_RETRY_DELAY
     data_dir: str = DEFAULT_DATA_DIR
     index_file: str = DEFAULT_INDEX_FILE
     log_file: str = DEFAULT_LOG_FILE
@@ -106,9 +97,6 @@ class AppConfig:
     # Derived — computed at init
     github_api_url: str = field(init=False)
     nse_headers: dict[str, str] = field(init=False)
-
-    # Class-level constants exposed for tests
-    RETRY_STATUS_CODES: ClassVar[tuple[int, ...]] = DEFAULT_RETRY_STATUS_CODES
 
     def __post_init__(self) -> None:
         # Validate required fields
@@ -126,9 +114,8 @@ class AppConfig:
         headers = {
             "User-Agent": self.user_agent,
             "Accept": DEFAULT_ACCEPT,
-            "Accept-Language": DEFAULT_ACCEPT_LANGUAGE,
-            "Accept-Encoding": DEFAULT_ACCEPT_ENCODING,
             "Referer": NSE_REFERER,
+            "Connection": "keep-alive",
         }
         object.__setattr__(self, "nse_headers", headers)
 
@@ -172,8 +159,8 @@ class AppConfig:
             max_retries=int(
                 os.environ.get("MAX_RETRIES", str(DEFAULT_MAX_RETRIES))
             ),
-            retry_backoff=float(
-                os.environ.get("RETRY_BACKOFF", str(DEFAULT_RETRY_BACKOFF))
+            retry_delay=int(
+                os.environ.get("RETRY_DELAY", str(DEFAULT_RETRY_DELAY))
             ),
             data_dir=os.environ.get("DATA_DIR", DEFAULT_DATA_DIR),
             index_file=os.environ.get("INDEX_FILE", DEFAULT_INDEX_FILE),
