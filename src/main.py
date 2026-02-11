@@ -204,6 +204,14 @@ class NSEArchiverPipeline:
             logger.info("=" * 60)
 
             records = count_records(raw_data)
+
+            # Construct raw download URL for easier access
+            # Format: https://raw.githubusercontent.com/{owner}/{repo}/{branch}/{filepath}
+            download_url = (
+                f"https://raw.githubusercontent.com/{self.config.github_repo}/"
+                f"{self.config.github_branch}/{filepath}"
+            )
+
             append_entry(
                 index=index,
                 filename=filename,
@@ -211,6 +219,7 @@ class NSEArchiverPipeline:
                 timestamp=now,
                 size_bytes=len(compressed),
                 raw_size_bytes=len(raw_data),
+                url=download_url,
                 records_count=records,
             )
             index_bytes = serialize_index(index)

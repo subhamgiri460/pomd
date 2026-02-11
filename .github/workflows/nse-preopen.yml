@@ -1,11 +1,7 @@
 name: NSE Pre-Open Data Archiver
 
 on:
-  schedule:
-    # 09:08 IST = 03:38 UTC daily
-    - cron: '38 3 * * *'
-
-  # Allow manual trigger for debugging / re-runs
+  # Manual trigger only, as requested
   workflow_dispatch:
     inputs:
       debug:

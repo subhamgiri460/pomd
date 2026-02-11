@@ -31,6 +31,7 @@ def _make_entry(
     timestamp: datetime,
     size_bytes: int,
     raw_size_bytes: int,
+    url: str,
     records_count: int | None = None,
 ) -> dict[str, Any]:
     """Build a single index entry."""
@@ -40,6 +41,7 @@ def _make_entry(
         "timestamp": timestamp.isoformat(),
         "size_bytes": size_bytes,            # compressed size
         "raw_size_bytes": raw_size_bytes,    # original JSON size
+        "url": url,                          # download URL
         "records_count": records_count,       # number of pre-open records
     }
 
@@ -116,6 +118,7 @@ def append_entry(
     timestamp: datetime,
     size_bytes: int,
     raw_size_bytes: int,
+    url: str,
     records_count: int | None = None,
 ) -> dict[str, Any]:
     """
@@ -128,6 +131,7 @@ def append_entry(
         timestamp: UTC timestamp of the fetch.
         size_bytes: Compressed file size.
         raw_size_bytes: Original JSON size.
+        url: Direct download URL for the file.
         records_count: Number of pre-open data records (optional).
 
     Returns:
@@ -139,6 +143,7 @@ def append_entry(
         timestamp=timestamp,
         size_bytes=size_bytes,
         raw_size_bytes=raw_size_bytes,
+        url=url,
         records_count=records_count,
     )
     index["files"].append(entry)
