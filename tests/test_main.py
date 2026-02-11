@@ -255,9 +255,12 @@ class TestRunPipelineErrors:
         )
 
         from src.nse_client import NSEFetchError
+        from src.log_manager import RunStatus
 
-        with pytest.raises(NSEFetchError):
-            run_pipeline(app_config)
+        # Expect an error result, not an exception
+        result = run_pipeline(app_config)
+        assert result.status == RunStatus.ERROR
+        assert "curl failed" in result.message
 
     @responses.activate
     @patch("src.main.get_utc_now", return_value=FIXED_TIMESTAMP)
@@ -302,9 +305,12 @@ class TestRunPipelineErrors:
         )
 
         from src.github_repo import GitHubAPIError
+        from src.log_manager import RunStatus
 
-        with pytest.raises(GitHubAPIError):
-            run_pipeline(app_config)
+        # Expect an error result, not an exception
+        result = run_pipeline(app_config)
+        assert result.status == RunStatus.ERROR
+        assert "GitHub API error" in result.message
 
 
 # ── Test PipelineResult ──────────────────────────────────────────────────────
