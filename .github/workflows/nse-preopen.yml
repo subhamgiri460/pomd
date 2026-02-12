@@ -23,7 +23,7 @@ jobs:
   # ── Gate: all tests must pass before archiving ──────────────────────────
   test:
     name: Run Tests
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, hf-space-runner]
     timeout-minutes: 5
 
     steps:
@@ -50,7 +50,7 @@ jobs:
   archive:
     name: Fetch & Archive NSE Pre-Open Data
     needs: test
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, hf-space-runner]
     timeout-minutes: 10
 
     env:
